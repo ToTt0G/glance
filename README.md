@@ -14,7 +14,19 @@
 
 <p align="center">A lightweight, highly customizable dashboard that displays<br> your feeds in a beautiful, streamlined interface</p>
 
+## 🍴 Fork Modifications & Custom Features
+
+This is a custom fork of Glance. The following additions and optimizations have been implemented:
+
+* **Optional Config Polling Watcher (`GLANCE_POLL_CONFIG=true`)**: Added an optional fallback configuration file watcher that checks for file updates using modification times (`ModTime`) every 2 seconds rather than filesystem events. This enables configuration hot-updates when `glance.yml` is hosted on network mounts (e.g. SMB, NFS, or Synology Share Sync NTFS shares) where standard `inotify` events do not propagate.
+* **Docker Container Grouping**: Enhanced the Docker widget to automatically group container statuses by their Docker Compose project name, improving dashboard organization.
+* **Optimized Docker Builds**: Reorganized the `Dockerfile` to implement proper layer caching for Go modules (`go mod download` is run separately after copying `go.mod` and `go.sum`), significantly accelerating container builds.
+* **Auto-Deployment CI/CD**: Added a GitHub Actions workflow (`deploy.yml`) to automatically build and push Docker images to GitHub Container Registry (GHCR) and trigger a Dokploy webhook for auto-deployment to the host server.
+
+---
+
 ![](docs/images/readme-main-image.png)
+
 
 ## Features
 ### Various widgets
