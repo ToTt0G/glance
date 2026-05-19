@@ -1,48 +1,61 @@
 {{ template "widget-base.html" . }}
 
 {{- define "widget-content" }}
-<ul class="dynamic-columns list-gap-20 list-with-separator">
-    {{- range .Containers }}
-    <li class="docker-container flex items-center gap-15">
-        <div class="shrink-0" data-popover-type="html" data-popover-position="above" data-popover-offset="0.25" data-popover-margin="0.1rem" data-popover-max-width="400px" aria-hidden="true">
-            <img class="docker-container-icon{{ if .Icon.AutoInvert }} flat-icon{{ end }}" src="{{ .Icon.URL }}" alt="" loading="lazy">
-            <div data-popover-html>
-                <div class="color-highlight text-truncate block">{{ .Image }}</div>
-                <div>{{ .StateText }}</div>
-                {{- if .Children }}
-                <ul class="list list-gap-4 margin-top-10">
-                    {{- range .Children }}
-                    <li class="flex gap-7 items-center">
-                        <div class="margin-bottom-3">{{ template "state-icon" .StateIcon }}</div>
-                        <div class="color-highlight">{{ .Name }} <span class="size-h5 color-base">{{ .StateText }}</span></div>
-                    </li>
+<div class="dynamic-columns list-gap-20 list-with-separator">
+    {{- $groups := .ContainerGroups }}
+    {{- $showHeaders := .ShowHeaders }}
+    {{- range .GroupNames }}
+    <div class="docker-project-group">
+        {{- if $showHeaders }}
+        <div class="docker-project-title" style="font-size: 1.1rem; color: var(--color-text-highlight); margin-bottom: 0.8rem; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid var(--color-separator); padding-bottom: 4px; font-weight: bold;">
+            {{- if eq . "Standalone" }}Other Containers{{ else }}{{ . }}{{ end -}}
+        </div>
+        {{- end }}
+        <ul class="list list-gap-20 list-with-separator">
+            {{- range index $groups . }}
+            <li class="docker-container flex items-center gap-15">
+                <div class="shrink-0" data-popover-type="html" data-popover-position="above" data-popover-offset="0.25" data-popover-margin="0.1rem" data-popover-max-width="400px" aria-hidden="true">
+                    <img class="docker-container-icon{{ if .Icon.AutoInvert }} flat-icon{{ end }}" src="{{ .Icon.URL }}" alt="" loading="lazy">
+                    <div data-popover-html>
+                        <div class="color-highlight text-truncate block">{{ .Image }}</div>
+                        <div>{{ .StateText }}</div>
+                        {{- if .Children }}
+                        <ul class="list list-gap-4 margin-top-10">
+                            {{- range .Children }}
+                            <li class="flex gap-7 items-center">
+                                <div class="margin-bottom-3">{{ template "state-icon" .StateIcon }}</div>
+                                <div class="color-highlight">{{ .Name }} <span class="size-h5 color-base">{{ .StateText }}</span></div>
+                            </li>
+                            {{- end }}
+                        </ul>
+                        {{- end }}
+                    </div>
+                </div>
+
+                <div class="min-width-0 grow">
+                    {{- if .URL }}
+                    <a href="{{ .URL | safeURL }}" class="color-highlight size-title-dynamic block text-truncate" {{ if not .SameTab }}target="_blank"{{ end }} rel="noreferrer">{{ .Name }}</a>
+                    {{- else }}
+                    <div class="color-highlight text-truncate size-title-dynamic">{{ .Name }}</div>
                     {{- end }}
-                </ul>
-                {{- end }}
-            </div>
-        </div>
+                    {{- if .Description }}
+                    <div class="text-truncate">{{ .Description }}</div>
+                    {{- end }}
+                </div>
 
-        <div class="min-width-0 grow">
-            {{- if .URL }}
-            <a href="{{ .URL | safeURL }}" class="color-highlight size-title-dynamic block text-truncate" {{ if not .SameTab }}target="_blank"{{ end }} rel="noreferrer">{{ .Name }}</a>
-            {{- else }}
-            <div class="color-highlight text-truncate size-title-dynamic">{{ .Name }}</div>
+                <div class="margin-left-auto shrink-0" data-popover-type="text" data-popover-position="above" data-popover-text="{{ .State }}" aria-label="{{ .State }}">
+                {{ template "state-icon" .StateIcon }}
+                </div>
+
+                <div class="visually-hidden" aria-label="{{ .StateText }}"></div>
+            </li>
             {{- end }}
-            {{- if .Description }}
-            <div class="text-truncate">{{ .Description }}</div>
-            {{- end }}
-        </div>
-
-        <div class="margin-left-auto shrink-0" data-popover-type="text" data-popover-position="above" data-popover-text="{{ .State }}" aria-label="{{ .State }}">
-        {{ template "state-icon" .StateIcon }}
-        </div>
-
-        <div class="visually-hidden" aria-label="{{ .StateText }}"></div>
-    </li>
+        </ul>
+    </div>
     {{- else }}
     <div class="text-center">No containers available to show.</div>
     {{- end }}
-</ul>
+</div>
 {{- end }}
 
 {{- define "state-icon" }}
