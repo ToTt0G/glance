@@ -23,6 +23,9 @@ type dockerContainersWidget struct {
 	SockPath             string                       `yaml:"sock-path"`
 	FormatContainerNames bool                         `yaml:"format-container-names"`
 	Containers           dockerContainerList          `yaml:"-"`
+	ContainerGroups      map[string]dockerContainerList `yaml:"-"`
+	GroupNames           []string                     `yaml:"-"`
+	ShowHeaders          bool                         `yaml:"-"`
 	LabelOverrides       map[string]map[string]string `yaml:"containers"`
 }
 
@@ -51,6 +54,28 @@ func (widget *dockerContainersWidget) update(ctx context.Context) {
 
 	containers.sortByStateIconThenTitle()
 	widget.Containers = containers
+
+	groups := make(map[string]dockerContainerList)
+	for _, c := range containers {
+		groups[c.Project] = append(groups[c.Project], c)
+	}
+	var names []string
+	for k := range groups {
+		names = append(names, k)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		if names[i] == "Standalone" {
+			return false
+		}
+		if names[j] == "Standalone" {
+			return true
+		}
+		return names[i] < names[j]
+	})
+
+	widget.ContainerGroups = groups
+	widget.GroupNames = names
+	widget.ShowHeaders = len(names) > 1 || (len(names) == 1 && names[0] != "Standalone")
 }
 
 func (widget *dockerContainersWidget) Render() template.HTML {
@@ -121,6 +146,7 @@ type dockerContainer struct {
 	Description string
 	Icon        customIconField
 	Children    dockerContainerList
+	Project     string
 }
 
 type dockerContainerList []dockerContainer
@@ -178,6 +204,7 @@ func fetchDockerContainers(
 			State:       strings.ToLower(container.State),
 			StateText:   strings.ToLower(container.Status),
 			Icon:        newCustomIconField(container.Labels.getOrDefault(dockerContainerLabelIcon, "si:docker")),
+			Project:     container.Labels.getOrDefault("com.docker.compose.project", "Standalone"),
 		}
 
 		if idValue := container.Labels.getOrDefault(dockerContainerLabelID, ""); idValue != "" {
