@@ -317,6 +317,122 @@ func configFilesWatcher(
 	// TODO: refactor, flaky
 	lastIncludes[mainFileAbsPath] = struct{}{}
 
+	pollConfig := os.Getenv("GLANCE_POLL_CONFIG") == "true"
+
+	if pollConfig {
+		done := make(chan struct{})
+
+		// Tracks last modification time of each watched file
+		lastModTimes := make(map[string]time.Time)
+		lastModTimesMu := sync.Mutex{}
+
+		updateModTimes := func(includes map[string]struct{}) {
+			lastModTimesMu.Lock()
+			defer lastModTimesMu.Unlock()
+			// Keep existing times but clear ones that are no longer included
+			newModTimes := make(map[string]time.Time)
+			for filePath := range includes {
+				if t, ok := lastModTimes[filePath]; ok {
+					newModTimes[filePath] = t
+				} else if stat, err := os.Stat(filePath); err == nil {
+					newModTimes[filePath] = stat.ModTime()
+				}
+			}
+			lastModTimes = newModTimes
+		}
+
+		updateModTimes(lastIncludes)
+
+		// needed for lastContents and lastIncludes because they get updated in multiple goroutines
+		mu := sync.Mutex{}
+
+		parseAndCompareBeforeCallback := func() {
+			currentContents, currentIncludes, err := parseYAMLIncludes(mainFilePath)
+			if err != nil {
+				onErr(fmt.Errorf("parsing main file contents for comparison: %w", err))
+				return
+			}
+
+			// TODO: refactor, flaky
+			currentIncludes[mainFileAbsPath] = struct{}{}
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			if !maps.Equal(currentIncludes, lastIncludes) {
+				updateModTimes(currentIncludes)
+				lastIncludes = currentIncludes
+			}
+
+			if !bytes.Equal(lastContents, currentContents) {
+				lastContents = currentContents
+				onChange(currentContents)
+			}
+		}
+
+		const debounceDuration = 500 * time.Millisecond
+		var debounceTimer *time.Timer
+		debouncedParseAndCompareBeforeCallback := func() {
+			if debounceTimer != nil {
+				debounceTimer.Stop()
+				debounceTimer.Reset(debounceDuration)
+			} else {
+				debounceTimer = time.AfterFunc(debounceDuration, parseAndCompareBeforeCallback)
+			}
+		}
+
+		ticker := time.NewTicker(2 * time.Second)
+
+		go func() {
+			for {
+				select {
+				case <-ticker.C:
+					mu.Lock()
+					filesToCheck := make([]string, 0, len(lastIncludes))
+					for filePath := range lastIncludes {
+						filesToCheck = append(filesToCheck, filePath)
+					}
+					mu.Unlock()
+
+					changed := false
+					for _, filePath := range filesToCheck {
+						stat, err := os.Stat(filePath)
+						if err != nil {
+							// If file is temporarily missing or error reading, we'll try parsing anyway to be safe
+							changed = true
+							continue
+						}
+
+						lastModTimesMu.Lock()
+						lastMod, exists := lastModTimes[filePath]
+						if !exists || !stat.ModTime().Equal(lastMod) {
+							changed = true
+							lastModTimes[filePath] = stat.ModTime()
+						}
+						lastModTimesMu.Unlock()
+					}
+
+					if changed {
+						debouncedParseAndCompareBeforeCallback()
+					}
+				case <-done:
+					ticker.Stop()
+					return
+				}
+			}
+		}()
+
+		onChange(lastContents)
+
+		return func() error {
+			if debounceTimer != nil {
+				debounceTimer.Stop()
+			}
+			close(done)
+			return nil
+		}, nil
+	}
+
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("creating watcher: %w", err)
