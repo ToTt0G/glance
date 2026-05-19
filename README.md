@@ -16,12 +16,24 @@
 
 ## 🍴 Fork Modifications & Custom Features
 
-This is a custom fork of Glance. The following additions and optimizations have been implemented:
+This custom fork of Glance contains several enhancements and optimizations designed to improve self-hosting workflows, container organization, build performance, and network share compatibility.
 
-* **Optional Config Polling Watcher (`GLANCE_POLL_CONFIG=true`)**: Added an optional fallback configuration file watcher that checks for file updates using modification times (`ModTime`) every 2 seconds rather than filesystem events. This enables configuration hot-updates when `glance.yml` is hosted on network mounts (e.g. SMB, NFS, or Synology Share Sync NTFS shares) where standard `inotify` events do not propagate.
-* **Docker Container Grouping**: Enhanced the Docker widget to automatically group container statuses by their Docker Compose project name, improving dashboard organization.
-* **Optimized Docker Builds**: Reorganized the `Dockerfile` to implement proper layer caching for Go modules (`go mod download` is run separately after copying `go.mod` and `go.sum`), significantly accelerating container builds.
-* **Auto-Deployment CI/CD**: Added a GitHub Actions workflow (`deploy.yml`) to automatically build and push Docker images to GitHub Container Registry (GHCR) and trigger a Dokploy webhook for auto-deployment to the host server.
+### 1. Fallback Config Polling Watcher (`GLANCE_POLL_CONFIG=true`)
+* **What:** Adds a polling-based file watcher that checks the modification times (`ModTime`) of configuration files (including any nested `!include` files) every 2 seconds.
+* **Why:** The upstream configuration watcher uses `fsnotify`, which relies on OS-level `inotify` events. In self-hosted environments where configuration files are mounted over network shares (e.g., NFS, SMB, or NTFS shares synchronized live using Synology Share Sync from NAS), standard filesystem events do not propagate into the container. This prevents Glance from hot-reloading when configuration changes are made. Enabling this polling mechanism restores automatic hot-reloading for network-mounted filesystems.
+* **How:** Set the environment variable `GLANCE_POLL_CONFIG=true` in your deployment or `docker-compose.yml` environment block.
+
+### 2. Docker Compose Project Grouping
+* **What:** The Docker widget groups containers dynamically by their Docker Compose project name (derived from the `com.docker.compose.project` label), with standalone containers listed under "Other Containers".
+* **Why:** Upstream Glance displays all active containers in a single flat, unorganized list. For servers running multiple multi-container applications (such as Dokploy stacks or standalone compose projects), this list quickly becomes cluttered. Grouping containers by project structures the dashboard to match the actual stack architecture.
+
+### 3. Dockerfile Build Caching Optimization
+* **What:** Restructured the `Dockerfile` to copy `go.mod` and `go.sum` first and run `go mod download` prior to copying the rest of the application source code.
+* **Why:** In the default project repository, any small change to config, templates, or documentation would invalidate the Docker build cache for Go dependencies, forcing the builder to re-download all Go packages on every commit. This optimization caches Go dependencies at the Docker layer level, reducing CI/CD build times from minutes to a few seconds.
+
+### 4. GitHub Actions CI/CD & Dokploy Auto-Deployment
+* **What:** Integrated a `.github/workflows/deploy.yml` workflow that automatically builds and pushes the Docker container to the GitHub Container Registry (GHCR) and triggers a deploy webhook on Dokploy.
+* **Why:** Automates the complete release and deploy cycle. When you push to this fork, the pipeline builds, uploads the new package, and triggers your host server to pull and deploy the live updates instantly.
 
 ---
 
