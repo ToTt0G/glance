@@ -259,7 +259,7 @@ var (
 	swarmTaskPattern         = regexp.MustCompile(`\.\d+\.[a-zA-Z0-9_-]{8,}$`)
 	dokployHashPattern       = regexp.MustCompile(`-[a-z0-9]{6}$`)
 	replicaSuffixPattern     = regexp.MustCompile(`[-_]\d+$`)
-	projectRoleSuffixPattern = regexp.MustCompile(`(?i)[-_](infra|fullstack|stack|app|service|services|web|backend|frontend|client|server|db|database|api)$`)
+	projectRoleSuffixPattern = regexp.MustCompile(`(?i)[-_](infra|fullstack|stack|app|service|services|web|backend|frontend|client|server|db|database|api|postgres|redis|traefik|mysql|mariadb|mongo|worker|queue)$`)
 )
 
 func sanitizeContainerRawName(name string) string {
@@ -275,6 +275,13 @@ func cleanProjectName(raw string) string {
 	if raw == "" || strings.EqualFold(raw, "standalone") {
 		return "Standalone"
 	}
+	if strings.HasPrefix(strings.ToLower(raw), "dokploy") {
+		return "Dokploy"
+	}
+	if strings.HasPrefix(strings.ToLower(raw), "klassens") {
+		return "Klassens"
+	}
+
 	cleaned := dokployHashPattern.ReplaceAllString(raw, "")
 	cleaned = projectRoleSuffixPattern.ReplaceAllString(cleaned, "")
 	if cleaned == "" {
@@ -284,11 +291,24 @@ func cleanProjectName(raw string) string {
 }
 
 func deriveDockerContainerProject(container *dockerContainerJsonResponse) string {
+	if len(container.Names) > 0 {
+		raw := strings.TrimLeft(container.Names[0], "/")
+		raw = swarmTaskPattern.ReplaceAllString(raw, "")
+		raw = dokployHashPattern.ReplaceAllString(raw, "")
+
+		if strings.HasPrefix(strings.ToLower(raw), "dokploy") {
+			return "Dokploy"
+		}
+		if strings.HasPrefix(strings.ToLower(raw), "klassens") {
+			return "Klassens"
+		}
+	}
+
 	if g := container.Labels.getOrDefault(dockerContainerLabelGroup, ""); g != "" {
-		return g
+		return cleanProjectName(g)
 	}
 	if p := container.Labels.getOrDefault("glance.project", ""); p != "" {
-		return p
+		return cleanProjectName(p)
 	}
 
 	if ns := container.Labels.getOrDefault("com.docker.stack.namespace", ""); ns != "" {
@@ -303,16 +323,6 @@ func deriveDockerContainerProject(container *dockerContainerJsonResponse) string
 		snClean := swarmTaskPattern.ReplaceAllString(sn, "")
 		snClean = dokployHashPattern.ReplaceAllString(snClean, "")
 		return cleanProjectName(snClean)
-	}
-
-	if len(container.Names) > 0 {
-		raw := strings.TrimLeft(container.Names[0], "/")
-		raw = swarmTaskPattern.ReplaceAllString(raw, "")
-		raw = dokployHashPattern.ReplaceAllString(raw, "")
-
-		if strings.HasPrefix(strings.ToLower(raw), "dokploy") {
-			return "Dokploy"
-		}
 	}
 
 	return "Standalone"
