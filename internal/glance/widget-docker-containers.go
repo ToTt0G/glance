@@ -59,6 +59,19 @@ func (widget *dockerContainersWidget) update(ctx context.Context) {
 	for _, c := range containers {
 		groups[c.Project] = append(groups[c.Project], c)
 	}
+
+	for projectName, projectContainers := range groups {
+		if projectName != "Standalone" && len(projectContainers) == 1 {
+			groups["Standalone"] = append(groups["Standalone"], projectContainers...)
+			delete(groups, projectName)
+		}
+	}
+
+	for k, list := range groups {
+		list.sortByStateIconThenTitle()
+		groups[k] = list
+	}
+
 	var names []string
 	for k := range groups {
 		names = append(names, k)

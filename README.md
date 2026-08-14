@@ -24,8 +24,8 @@ This custom fork of Glance contains several enhancements and optimizations desig
 * **How:** Set the environment variable `GLANCE_POLL_CONFIG=true` in your deployment or `docker-compose.yml` environment block.
 
 ### 2. Docker Compose Project Grouping
-* **What:** The Docker widget groups containers dynamically by their Docker Compose project name (derived from the `com.docker.compose.project` label), with standalone containers listed under "Other Containers".
-* **Why:** Upstream Glance displays all active containers in a single flat, unorganized list. For servers running multiple multi-container applications (such as Dokploy stacks or standalone compose projects), this list quickly becomes cluttered. Grouping containers by project structures the dashboard to match the actual stack architecture.
+* **What:** The Docker widget groups containers dynamically by their Docker Compose project name (derived from the `com.docker.compose.project` label). Multi-container stacks get dedicated group headers, while single-container projects and unassociated containers are grouped under "Other Containers". If all containers on the server belong to "Other Containers", the grouping header is automatically hidden.
+* **Why:** Upstream Glance displays all active containers in a single flat, unorganized list. Grouping multi-container stacks while consolidating isolated services prevents header clutter and matches the actual server stack architecture.
 
 ### 3. Dockerfile Build Caching Optimization
 * **What:** Restructured the `Dockerfile` to copy `go.mod` and `go.sum` first and run `go mod download` prior to copying the rest of the application source code.
