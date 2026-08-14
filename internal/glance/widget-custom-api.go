@@ -475,11 +475,55 @@ var customAPITemplateFuncs = func() template.FuncMap {
 	}
 
 	funcs := template.FuncMap{
-		"toFloat": func(a int) float64 {
-			return float64(a)
+		"toFloat": func(a any) float64 {
+			switch v := a.(type) {
+			case float64:
+				return v
+			case float32:
+				return float64(v)
+			case int:
+				return float64(v)
+			case int64:
+				return float64(v)
+			case uint:
+				return float64(v)
+			case uint64:
+				return float64(v)
+			case string:
+				f, _ := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(v, "%")), 64)
+				return f
+			case decoratedGJSONResult:
+				return v.Float()
+			case gjson.Result:
+				return v.Float()
+			default:
+				return 0
+			}
 		},
-		"toInt": func(a float64) int {
-			return int(a)
+		"toInt": func(a any) int {
+			switch v := a.(type) {
+			case int:
+				return v
+			case int64:
+				return int(v)
+			case float64:
+				return int(v)
+			case float32:
+				return int(v)
+			case uint:
+				return int(v)
+			case uint64:
+				return int(v)
+			case string:
+				f, _ := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(v, "%")), 64)
+				return int(f)
+			case decoratedGJSONResult:
+				return int(v.Int())
+			case gjson.Result:
+				return int(v.Int())
+			default:
+				return 0
+			}
 		},
 		"add": func(a, b any) any {
 			return doMathOpWithAny(a, b, "add")
