@@ -16,8 +16,9 @@ import (
 var serverStatsWidgetTemplate = mustParseTemplate("server-stats.html", "widget-base.html")
 
 type serverStatsWidget struct {
-	widgetBase `yaml:",inline"`
-	Servers    []serverStatsRequest `yaml:"servers"`
+	widgetBase                 `yaml:",inline"`
+	*sysinfo.SystemInfoRequest `yaml:",inline"`
+	Servers                    []serverStatsRequest `yaml:"servers"`
 }
 
 func (widget *serverStatsWidget) initialize() error {
@@ -25,7 +26,16 @@ func (widget *serverStatsWidget) initialize() error {
 	widget.widgetBase.WIP = true
 
 	if len(widget.Servers) == 0 {
-		widget.Servers = []serverStatsRequest{{Type: "local"}}
+		widget.Servers = []serverStatsRequest{{
+			Type:              "local",
+			SystemInfoRequest: widget.SystemInfoRequest,
+		}}
+	} else {
+		for i := range widget.Servers {
+			if widget.Servers[i].Type == "local" && widget.Servers[i].SystemInfoRequest == nil && widget.SystemInfoRequest != nil {
+				widget.Servers[i].SystemInfoRequest = widget.SystemInfoRequest
+			}
+		}
 	}
 
 	for i := range widget.Servers {

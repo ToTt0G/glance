@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -228,6 +230,11 @@ func Collect(req *SystemInfoRequest) (*SystemInfo, []error) {
 		}
 	}
 
+	hostRoot := os.Getenv("GLANCE_HOST_ROOT")
+	if hostRoot == "" {
+		hostRoot = os.Getenv("HOST_ROOT")
+	}
+
 	addedMountpoints := map[string]struct{}{}
 	addMountpointInfo := func(requestedPath string, mpReq MointpointRequest) {
 		if _, exists := addedMountpoints[requestedPath]; exists {
@@ -242,11 +249,29 @@ func Collect(req *SystemInfoRequest) (*SystemInfo, []error) {
 			return
 		}
 
-		usage, err := disk.Usage(requestedPath)
-		if err == nil {
+		pathsToTry := []string{requestedPath}
+		if hostRoot != "" && !strings.HasPrefix(requestedPath, hostRoot) {
+			target := filepath.Join(hostRoot, requestedPath)
+			pathsToTry = []string{target, requestedPath}
+		}
+
+		var usage *disk.UsageStat
+		var err error
+		for _, p := range pathsToTry {
+			usage, err = disk.Usage(p)
+			if err == nil {
+				break
+			}
+		}
+
+		if err == nil && usage != nil {
+			displayName := mpReq.Name
+			if displayName == "" {
+				displayName = requestedPath
+			}
 			mpInfo := MountpointInfo{
 				Path:        requestedPath,
-				Name:        mpReq.Name,
+				Name:        displayName,
 				TotalMB:     usage.Total / 1024 / 1024,
 				UsedMB:      usage.Used / 1024 / 1024,
 				UsedPercent: uint8(math.Min(usage.UsedPercent, 100)),
@@ -259,10 +284,35 @@ func Collect(req *SystemInfoRequest) (*SystemInfo, []error) {
 		}
 	}
 
+	shouldSkipPartition := func(mountpoint string) bool {
+		if _, ok := req.Mountpoints[mountpoint]; ok {
+			return false
+		}
+		skipPrefixes := []string{
+			"/var/lib/docker",
+			"/run",
+			"/proc",
+			"/sys",
+			"/dev",
+			"/tmp",
+			"/host",
+			"/etc",
+		}
+		for _, prefix := range skipPrefixes {
+			if strings.HasPrefix(mountpoint, prefix) {
+				return true
+			}
+		}
+		return false
+	}
+
 	if !req.HideMountpointsByDefault {
 		filesystems, err := disk.Partitions(false)
 		if err == nil {
 			for _, fs := range filesystems {
+				if shouldSkipPartition(fs.Mountpoint) {
+					continue
+				}
 				addMountpointInfo(fs.Mountpoint, req.Mountpoints[fs.Mountpoint])
 			}
 		} else {

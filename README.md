@@ -35,6 +35,10 @@ This custom fork of Glance contains several enhancements and optimizations desig
 * **What:** Integrated a `.github/workflows/deploy.yml` workflow that automatically builds and pushes the Docker container to the GitHub Container Registry (GHCR) and triggers a deploy webhook on Dokploy.
 * **Why:** Automates the complete release and deploy cycle. When you push to this fork, the pipeline builds, uploads the new package, and triggers your host server to pull and deploy the live updates instantly.
 
+### 5. Host Drive Mount Resolution & Multi-Drive Server Stats
+* **What:** Implemented `GLANCE_HOST_ROOT` path resolution in `sysinfo` (e.g. mapping `/` to `/host` and `/mnt/data` to `/host/mnt/data` or container mounts) and updated the `server-stats` template to display multiple drives with dynamic progress bars, per-drive percentages, and popover breakdowns.
+* **Why:** When Glance runs in Docker, checking host disk usage without host path resolution causes container overlay stats to be read instead of host root, and non-root host partitions (such as secondary SSDs/HDDs) fail stat calls and get omitted. This enhancement enables full multi-drive server visibility while filtering out noisy virtual mounts.
+
 ---
 
 ![](docs/images/readme-main-image.png)
