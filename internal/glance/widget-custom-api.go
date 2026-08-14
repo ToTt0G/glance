@@ -388,19 +388,39 @@ func (r *decoratedGJSONResult) String(key string) string {
 }
 
 func (r *decoratedGJSONResult) Int(key string) int {
-	if key == "" {
-		return int(r.Result.Int())
+	res := r.Result
+	if key != "" {
+		res = r.Result.Get(key)
 	}
 
-	return int(r.Result.Get(key).Int())
+	if res.Type == gjson.Number {
+		return int(res.Int())
+	}
+
+	str := strings.TrimSpace(strings.TrimSuffix(res.String(), "%"))
+	if f, err := strconv.ParseFloat(str, 64); err == nil {
+		return int(math.Round(f))
+	}
+
+	return int(res.Int())
 }
 
 func (r *decoratedGJSONResult) Float(key string) float64 {
-	if key == "" {
-		return r.Result.Float()
+	res := r.Result
+	if key != "" {
+		res = r.Result.Get(key)
 	}
 
-	return r.Result.Get(key).Float()
+	if res.Type == gjson.Number {
+		return res.Float()
+	}
+
+	str := strings.TrimSpace(strings.TrimSuffix(res.String(), "%"))
+	if f, err := strconv.ParseFloat(str, 64); err == nil {
+		return f
+	}
+
+	return res.Float()
 }
 
 func (r *decoratedGJSONResult) Bool(key string) bool {
