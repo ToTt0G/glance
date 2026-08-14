@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -98,6 +99,7 @@ func (widget *dockerContainersWidget) Render() template.HTML {
 const (
 	dockerContainerLabelHide        = "glance.hide"
 	dockerContainerLabelName        = "glance.name"
+	dockerContainerLabelGroup       = "glance.group"
 	dockerContainerLabelURL         = "glance.url"
 	dockerContainerLabelDescription = "glance.description"
 	dockerContainerLabelSameTab     = "glance.same-tab"
@@ -217,7 +219,7 @@ func fetchDockerContainers(
 			State:       strings.ToLower(container.State),
 			StateText:   strings.ToLower(container.Status),
 			Icon:        newCustomIconField(container.Labels.getOrDefault(dockerContainerLabelIcon, "si:docker")),
-			Project:     container.Labels.getOrDefault("com.docker.compose.project", "Standalone"),
+			Project:     deriveDockerContainerProject(container),
 		}
 
 		if idValue := container.Labels.getOrDefault(dockerContainerLabelID, ""); idValue != "" {
@@ -253,6 +255,69 @@ func fetchDockerContainers(
 	return dockerContainers, nil
 }
 
+var (
+	swarmTaskPattern         = regexp.MustCompile(`\.\d+\.[a-zA-Z0-9_-]{8,}$`)
+	dokployHashPattern       = regexp.MustCompile(`-[a-z0-9]{6}$`)
+	replicaSuffixPattern     = regexp.MustCompile(`[-_]\d+$`)
+	projectRoleSuffixPattern = regexp.MustCompile(`(?i)[-_](infra|fullstack|stack|app|service|services|web|backend|frontend|client|server|db|database|api)$`)
+)
+
+func sanitizeContainerRawName(name string) string {
+	name = strings.TrimLeft(name, "/")
+	name = swarmTaskPattern.ReplaceAllString(name, "")
+	name = dokployHashPattern.ReplaceAllString(name, "")
+	name = replicaSuffixPattern.ReplaceAllString(name, "")
+	return name
+}
+
+func cleanProjectName(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.EqualFold(raw, "standalone") {
+		return "Standalone"
+	}
+	cleaned := dokployHashPattern.ReplaceAllString(raw, "")
+	cleaned = projectRoleSuffixPattern.ReplaceAllString(cleaned, "")
+	if cleaned == "" {
+		cleaned = raw
+	}
+	return cleaned
+}
+
+func deriveDockerContainerProject(container *dockerContainerJsonResponse) string {
+	if g := container.Labels.getOrDefault(dockerContainerLabelGroup, ""); g != "" {
+		return g
+	}
+	if p := container.Labels.getOrDefault("glance.project", ""); p != "" {
+		return p
+	}
+
+	if ns := container.Labels.getOrDefault("com.docker.stack.namespace", ""); ns != "" {
+		return cleanProjectName(ns)
+	}
+
+	if cp := container.Labels.getOrDefault("com.docker.compose.project", ""); cp != "" {
+		return cleanProjectName(cp)
+	}
+
+	if sn := container.Labels.getOrDefault("com.docker.swarm.service.name", ""); sn != "" {
+		snClean := swarmTaskPattern.ReplaceAllString(sn, "")
+		snClean = dokployHashPattern.ReplaceAllString(snClean, "")
+		return cleanProjectName(snClean)
+	}
+
+	if len(container.Names) > 0 {
+		raw := strings.TrimLeft(container.Names[0], "/")
+		raw = swarmTaskPattern.ReplaceAllString(raw, "")
+		raw = dokployHashPattern.ReplaceAllString(raw, "")
+
+		if strings.HasPrefix(strings.ToLower(raw), "dokploy") {
+			return "Dokploy"
+		}
+	}
+
+	return "Standalone"
+}
+
 func deriveDockerContainerName(container *dockerContainerJsonResponse, formatNames bool) string {
 	if v := container.Labels.getOrDefault(dockerContainerLabelName, ""); v != "" {
 		return v
@@ -262,19 +327,23 @@ func deriveDockerContainerName(container *dockerContainerJsonResponse, formatNam
 		return "n/a"
 	}
 
-	name := strings.TrimLeft(container.Names[0], "/")
+	name := container.Names[0]
 
 	if formatNames {
+		name = sanitizeContainerRawName(name)
 		name = strings.ReplaceAll(name, "_", " ")
 		name = strings.ReplaceAll(name, "-", " ")
 
 		words := strings.Split(name, " ")
-		for i := range words {
-			if len(words[i]) > 0 {
-				words[i] = strings.ToUpper(words[i][:1]) + words[i][1:]
+		var cleanedWords []string
+		for _, w := range words {
+			if len(w) > 0 {
+				cleanedWords = append(cleanedWords, strings.ToUpper(w[:1])+w[1:])
 			}
 		}
-		name = strings.Join(words, " ")
+		name = strings.Join(cleanedWords, " ")
+	} else {
+		name = strings.TrimLeft(name, "/")
 	}
 
 	return name
@@ -386,6 +455,10 @@ func fetchDockerContainersFromSource(
 		}
 
 		overrides, ok := labelOverrides[name]
+		if !ok {
+			sanitized := sanitizeContainerRawName(name)
+			overrides, ok = labelOverrides[sanitized]
+		}
 		if !ok {
 			continue
 		}
