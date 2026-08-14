@@ -367,11 +367,11 @@ func gJsonResultArrayToDecoratedResultArray(results []gjson.Result) []decoratedG
 	return decoratedResults
 }
 
-func (r *decoratedGJSONResult) Exists(key string) bool {
+func (r decoratedGJSONResult) Exists(key string) bool {
 	return r.Result.Get(key).Exists()
 }
 
-func (r *decoratedGJSONResult) Array(key string) []decoratedGJSONResult {
+func (r decoratedGJSONResult) Array(key string) []decoratedGJSONResult {
 	if key == "" {
 		return gJsonResultArrayToDecoratedResultArray(r.Result.Array())
 	}
@@ -379,7 +379,7 @@ func (r *decoratedGJSONResult) Array(key string) []decoratedGJSONResult {
 	return gJsonResultArrayToDecoratedResultArray(r.Result.Get(key).Array())
 }
 
-func (r *decoratedGJSONResult) String(key string) string {
+func (r decoratedGJSONResult) String(key string) string {
 	if key == "" {
 		return r.Result.String()
 	}
@@ -387,7 +387,7 @@ func (r *decoratedGJSONResult) String(key string) string {
 	return r.Result.Get(key).String()
 }
 
-func (r *decoratedGJSONResult) Int(key string) int {
+func (r decoratedGJSONResult) Int(key string) int {
 	res := r.Result
 	if key != "" {
 		res = r.Result.Get(key)
@@ -405,7 +405,7 @@ func (r *decoratedGJSONResult) Int(key string) int {
 	return int(res.Int())
 }
 
-func (r *decoratedGJSONResult) Float(key string) float64 {
+func (r decoratedGJSONResult) Float(key string) float64 {
 	res := r.Result
 	if key != "" {
 		res = r.Result.Get(key)
@@ -423,7 +423,7 @@ func (r *decoratedGJSONResult) Float(key string) float64 {
 	return res.Float()
 }
 
-func (r *decoratedGJSONResult) Bool(key string) bool {
+func (r decoratedGJSONResult) Bool(key string) bool {
 	if key == "" {
 		return r.Result.Bool()
 	}
@@ -431,8 +431,8 @@ func (r *decoratedGJSONResult) Bool(key string) bool {
 	return r.Result.Get(key).Bool()
 }
 
-func (r *decoratedGJSONResult) Get(key string) *decoratedGJSONResult {
-	return &decoratedGJSONResult{r.Result.Get(key)}
+func (r decoratedGJSONResult) Get(key string) decoratedGJSONResult {
+	return decoratedGJSONResult{r.Result.Get(key)}
 }
 
 func customAPIDoMathOp[T int | float64](a, b T, op string) T {
@@ -513,9 +513,27 @@ var customAPITemplateFuncs = func() template.FuncMap {
 				f, _ := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(v, "%")), 64)
 				return f
 			case decoratedGJSONResult:
-				return v.Float()
+				return v.Float("")
+			case *decoratedGJSONResult:
+				if v == nil {
+					return 0
+				}
+				return v.Float("")
 			case gjson.Result:
-				return v.Float()
+				if v.Type == gjson.Number {
+					return v.Float()
+				}
+				f, _ := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(v.String(), "%")), 64)
+				return f
+			case *gjson.Result:
+				if v == nil {
+					return 0
+				}
+				if v.Type == gjson.Number {
+					return v.Float()
+				}
+				f, _ := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(v.String(), "%")), 64)
+				return f
 			default:
 				return 0
 			}
@@ -536,11 +554,29 @@ var customAPITemplateFuncs = func() template.FuncMap {
 				return int(v)
 			case string:
 				f, _ := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(v, "%")), 64)
-				return int(f)
+				return int(math.Round(f))
 			case decoratedGJSONResult:
-				return int(v.Int())
+				return v.Int("")
+			case *decoratedGJSONResult:
+				if v == nil {
+					return 0
+				}
+				return v.Int("")
 			case gjson.Result:
-				return int(v.Int())
+				if v.Type == gjson.Number {
+					return int(v.Int())
+				}
+				f, _ := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(v.String(), "%")), 64)
+				return int(math.Round(f))
+			case *gjson.Result:
+				if v == nil {
+					return 0
+				}
+				if v.Type == gjson.Number {
+					return int(v.Int())
+				}
+				f, _ := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(v.String(), "%")), 64)
+				return int(math.Round(f))
 			default:
 				return 0
 			}
