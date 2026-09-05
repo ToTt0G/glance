@@ -1,0 +1,59 @@
+name: Sync upstream glanceapp/glance
+
+# Keeps this single-branch fork up to date with upstream `main` (stable).
+# Upstream `dev` is intentionally ignored: it is experimental and currently
+# diverged by an accidental mass-revert on upstream `main` (see README).
+# Pushing to `main` triggers deploy.yml (GHCR build + Dokploy webhook).
+on:
+  schedule:
+    - cron: "0 3 * * *" # daily 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge upstream main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/glanceapp/glance.git 2>/dev/null || true
+          git fetch upstream main
+          if git merge --no-edit upstream/main; then
+            echo "MERGED=true" >> "$GITHUB_ENV"
+          else
+            echo "MERGED=false" >> "$GITHUB_ENV"
+            git merge --abort || true
+          fi
+
+      - name: Push to fork main
+        if: env.MERGED == 'true'
+        run: |
+          # Only push if upstream brought something new
+          if [ "$(git rev-list --count origin/main..HEAD)" -gt 0 ]; then
+            git push origin HEAD:main
+          else
+            echo "Already up to date, nothing to push."
+          fi
+
+      - name: Open issue on conflict
+        if: env.MERGED == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Upstream sync conflict ${new Date().toISOString().slice(0,10)}`,
+              body: 'Daily `upstream/main` merge conflicted and was aborted. Merge manually:\n\n```\ngit fetch upstream main\ngit merge upstream/main\n```\nNo code was pushed; deploy was not triggered.'
+            });
