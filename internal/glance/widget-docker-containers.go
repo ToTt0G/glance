@@ -69,7 +69,7 @@ func (widget *dockerContainersWidget) update(ctx context.Context) {
 	}
 
 	for k, list := range groups {
-		list.sortByStateIconThenTitle()
+		list.sortByStateIconThenName()
 		groups[k] = list
 	}
 
