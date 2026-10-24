@@ -1170,6 +1170,8 @@ Can be used to specify the order in which the posts should get returned. Possibl
 Available only when `sort-by` is set to `top`. Possible values are `hour`, `day`, `week`, `month`, `year` and `all`.
 
 ##### `search`
+**Due to changes in Reddit's API, the search property works only when app-auth is configured.**
+
 Keywords to search for. Searching within specific fields is also possible, **though keep in mind that Reddit may remove the ability to use any of these at any time**:
 
 ![](images/reddit-field-search.png)
@@ -2419,6 +2421,8 @@ To display data from a remote server you need to have the Glance Agent running o
 In the event that the CPU temperature goes over 80°C, a flame icon will appear next to the CPU. The progress indicators will also turn red (or the equivalent of your negative color) to hopefully grab your attention if anything is unusually high:
 
 ![](images/server-stats-flame-icon.png)
+
+The CPU value is calculated from the system's load average (1 minute, with the 15 minute average shown in the popover) relative to the number of logical CPU cores. On Linux, the load average also includes processes that are waiting for disk I/O, so on servers with a lot of disk activity, such as a NAS with spinning hard drives, the value can be noticeably higher than the actual CPU utilization.
 
 #### Properties
 | Name | Type | Required | Default |
