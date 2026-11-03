@@ -5,6 +5,13 @@ on:
     branches:
       - main
 
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact merged commit to build
+        required: true
+        type: string
+
 permissions:
   contents: read
   packages: write
@@ -15,6 +22,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Record image revision
+        id: revision
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -42,7 +55,7 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ steps.string.outputs.repo_name }}:latest
-            ghcr.io/${{ steps.string.outputs.repo_name }}:${{ github.sha }}
+            ghcr.io/${{ steps.string.outputs.repo_name }}:${{ steps.revision.outputs.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -52,7 +65,7 @@ jobs:
           DOKPLOY_WEBHOOK_URL: ${{ secrets.DOKPLOY_WEBHOOK_URL }}
         run: |
           if [ -n "$DOKPLOY_WEBHOOK_URL" ]; then
-            curl -X POST "$DOKPLOY_WEBHOOK_URL"
+            curl --fail --silent --show-error -X POST "$DOKPLOY_WEBHOOK_URL"
           else
             echo "DOKPLOY_WEBHOOK_URL secret is not set, skipping deploy webhook trigger."
           fi

@@ -1,85 +1,117 @@
 name: Sync upstream glanceapp/glance
 
-# Keeps this single-branch fork up to date with upstream `main` (stable).
-# Upstream `dev` is intentionally ignored: it is experimental and currently
-# diverged by an accidental mass-revert on upstream `main` (see README).
-# Pushing to `main` triggers deploy.yml (GHCR build + Dokploy webhook).
-#
-# Workflow files (.github/workflows) are kept fork-local on purpose:
-# deploy.yml and this sync workflow are fork-specific, and release.yaml
-# stays pinned to the fork's copy. The GITHUB_TOKEN is a GitHub App and
-# GitHub refuses pushes that create or update workflow files with it
-# ("refusing to allow a GitHub App to create or update workflow ...
-# without `workflows` permission", see run failures before 2026-10-24).
-# To keep daily merges pushable, .github/workflows is always reset to the
-# fork's current state before the merge commit is finalized, so the pushed
-# commit never contains workflow-file changes. Do not commit workflow
-# changes from upstream here.
+# Merge stable main only. Workflow files stay fork-local so GITHUB_TOKEN
+# never needs permission to change workflows. Bot pushes do not trigger
+# push workflows, so deployment is called explicitly after a successful push.
 on:
   schedule:
-    - cron: "0 3 * * *" # daily 03:00 UTC
+    - cron: "17 3 * * *" # daily 03:17 UTC, away from the busy hour boundary
   workflow_dispatch:
 
+concurrency:
+  group: sync-upstream-main
+  cancel-in-progress: false
+
 permissions:
-  contents: write # push the merged result to main
-  issues: write # open an actionable issue if the upstream merge conflicts
+  contents: read
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+    outputs:
+      changed: ${{ steps.push.outputs.changed }}
+      sha: ${{ steps.push.outputs.sha }}
     steps:
       - name: Checkout fork main
         uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Merge upstream main
+      - name: Merge upstream main, preserving fork workflows
+        id: merge
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote add upstream https://github.com/glanceapp/glance.git 2>/dev/null || true
+          git remote add upstream https://github.com/glanceapp/glance.git
           git fetch upstream main
-          if git merge --no-edit upstream/main; then
-            echo "MERGED=true" >> "$GITHUB_ENV"
-          else
-            echo "MERGED=false" >> "$GITHUB_ENV"
-            git merge --abort || true
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "Already up to date."
+            exit 0
           fi
 
-      - name: Drop upstream changes to .github/workflows
-        if: env.MERGED == 'true'
-        run: |
-          # See header comment: fork keeps its own workflow files and the
-          # GITHUB_TOKEN cannot push workflow-file changes anyway. Restoring
-          # them makes the merge commit workflow-free, so the push succeeds.
-          if git diff --quiet --no-ext-diff origin/main..HEAD -- .github/workflows; then
-            echo "Upstream did not change workflow files."
-          else
-            echo "Restoring .github/workflows from origin/main."
-            git checkout origin/main -- .github/workflows
-            git commit --amend --no-edit
+          # Stop before committing, even for a possible fast-forward.
+          # Restore the entire directory, including additions/deletions,
+          # before checking for genuine conflicts outside workflow files.
+          merge_status=0
+          git merge --no-commit --no-ff upstream/main || merge_status=$?
+          git restore --source=HEAD --staged --worktree -- .github/workflows
+          conflicts=$(git diff --name-only --diff-filter=U)
+          if [ -n "$conflicts" ]; then
+            {
+              echo '### Upstream sync blocked by merge conflicts'
+              echo '```'
+              printf '%s\n' "$conflicts"
+              echo '```'
+              echo 'Merge upstream/main manually. No changes were pushed or deployed.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            git merge --abort
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          # A non-conflict Git failure must not be mistaken for success.
+          if ! git rev-parse --verify MERGE_HEAD >/dev/null; then
+            echo "Merge failed with status $merge_status without a merge to commit." >&2
+            exit 1
+          fi
+          git commit --no-edit
+          git diff --exit-code origin/main HEAD -- .github/workflows
 
       - name: Push to fork main
-        if: env.MERGED == 'true'
+        id: push
+        if: steps.merge.outputs.conflict != 'true'
         run: |
-          # Only push if upstream brought something new
-          if [ "$(git rev-list --count origin/main..HEAD)" -gt 0 ]; then
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if [ "$(git rev-parse origin/main)" != "$(git rev-parse HEAD)" ]; then
             git push origin HEAD:main
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Already up to date, nothing to push."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Open issue on conflict
-        if: env.MERGED == 'false'
+      - name: Report merge conflicts
+        if: steps.merge.outputs.conflict == 'true'
         uses: actions/github-script@v7
         with:
           script: |
-            github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `Upstream sync conflict ${new Date().toISOString().slice(0,10)}`,
-              body: 'Daily `upstream/main` merge conflicted and was aborted. Merge manually:\n\n```\ngit fetch upstream main\ngit merge upstream/main\n```\nNo code was pushed; deploy was not triggered.'
+            core.setFailed('Upstream merge conflicted. See the run summary; nothing was pushed or deployed.');
+            const { data: repo } = await github.rest.repos.get(context.repo);
+            if (!repo.has_issues) {
+              core.warning('Repository Issues are disabled. Conflict details are in the run summary.');
+              return;
+            }
+            const title = 'Upstream sync conflict';
+            const { data: issues } = await github.rest.issues.listForRepo({
+              ...context.repo, state: 'open', creator: 'github-actions[bot]'
             });
+            if (!issues.some(issue => issue.title === title)) {
+              await github.rest.issues.create({
+                ...context.repo,
+                title,
+                body: `The upstream/main merge conflicted. No changes were pushed or deployed.\n\nSee the [run summary](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for conflicting paths.`
+              });
+            }
+
+  deploy:
+    needs: sync
+    if: needs.sync.outputs.changed == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/deploy.yml
+    with:
+      ref: ${{ needs.sync.outputs.sha }}
+    secrets: inherit

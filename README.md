@@ -27,13 +27,14 @@ This custom fork of Glance contains several enhancements and optimizations desig
 * **What:** The Docker widget groups containers dynamically by their Docker Compose project name (derived from the `com.docker.compose.project` label). Multi-container stacks get dedicated group headers, while single-container projects and unassociated containers are grouped under "Other Containers". If all containers on the server belong to "Other Containers", the grouping header is automatically hidden.
 * **Why:** Upstream Glance displays all active containers in a single flat, unorganized list. Grouping multi-container stacks while consolidating isolated services prevents header clutter and matches the actual server stack architecture.
 
-### 3. Dockerfile Build Caching Optimization
-* **What:** Restructured the `Dockerfile` to copy `go.mod` and `go.sum` first and run `go mod download` prior to copying the rest of the application source code.
-* **Why:** In the default project repository, any small change to config, templates, or documentation would invalidate the Docker build cache for Go dependencies, forcing the builder to re-download all Go packages on every commit. This optimization caches Go dependencies at the Docker layer level, reducing CI/CD build times from minutes to a few seconds.
+### 3. Upstream-Compatible Container Builds
+* **What:** Keeps `Dockerfile` identical to upstream; GitHub Actions retains its BuildKit cache in GitHub Actions storage.
+* **Why:** Fork-specific dependency-layer changes caused merge conflicts during upstream Go and Alpine version bumps. Keeping this file aligned lets those updates merge automatically.
 
 ### 4. GitHub Actions CI/CD & Dokploy Auto-Deployment
 * **What:** Integrated a `.github/workflows/deploy.yml` workflow that automatically builds and pushes the Docker container to the GitHub Container Registry (GHCR) and triggers a deploy webhook on Dokploy.
-* **Why:** Automates the complete release and deploy cycle. When you push to this fork, the pipeline builds, uploads the new package, and triggers your host server to pull and deploy the live updates instantly.
+* **Why:** Automates the complete release and deploy cycle. Pushes to `main` build and deploy. Daily upstream syncs call the same reusable deployment workflow explicitly, because pushes made with `GITHUB_TOKEN` do not trigger push workflows. The image is tagged with the exact merged commit.
+* **Upstream sync:** `.github/workflows/sync-upstream.yml` merges upstream `main` daily at 03:17 UTC and can also be run manually. Fork workflow files are preserved before committing. Genuine code conflicts abort the merge and fail the run with details in its summary; an issue is opened only if repository Issues are enabled.
 
 ### 5. Host Drive Mount Resolution & Multi-Drive Server Stats
 * **What:** Implemented `GLANCE_HOST_ROOT` path resolution in `sysinfo` (e.g. mapping `/` to `/host` and `/mnt/data` to `/host/mnt/data` or container mounts) and updated the `server-stats` template to display multiple drives with dynamic progress bars, per-drive percentages, and popover breakdowns.
