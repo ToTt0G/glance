@@ -1,0 +1,29 @@
+name: Test upstream sync
+
+on:
+  pull_request:
+    paths:
+      - .github/scripts/**
+      - .github/workflows/sync-upstream.yml
+      - .github/workflows/deploy.yml
+      - .github/workflows/test-sync.yml
+  push:
+    branches: [main]
+    paths:
+      - .github/scripts/**
+      - .github/workflows/sync-upstream.yml
+      - .github/workflows/deploy.yml
+      - .github/workflows/test-sync.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check shell syntax
+        run: for script in .github/scripts/*.sh; do bash -n "$script"; done
+      - name: Exercise sync with local Git fixtures
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v

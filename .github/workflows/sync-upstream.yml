@@ -22,7 +22,6 @@ jobs:
       contents: write
       issues: write
     outputs:
-      changed: ${{ steps.push.outputs.changed }}
       sha: ${{ steps.push.outputs.sha }}
     steps:
       - name: Checkout fork main
@@ -31,44 +30,12 @@ jobs:
           ref: main
           fetch-depth: 0
 
+      - name: Test sync behavior
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+
       - name: Merge upstream main, preserving fork workflows
         id: merge
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote add upstream https://github.com/glanceapp/glance.git
-          git fetch upstream main
-          if git merge-base --is-ancestor upstream/main HEAD; then
-            echo "Already up to date."
-            exit 0
-          fi
-
-          # Stop before committing, even for a possible fast-forward.
-          # Restore the entire directory, including additions/deletions,
-          # before checking for genuine conflicts outside workflow files.
-          merge_status=0
-          git merge --no-commit --no-ff upstream/main || merge_status=$?
-          git restore --source=HEAD --staged --worktree -- .github/workflows
-          conflicts=$(git diff --name-only --diff-filter=U)
-          if [ -n "$conflicts" ]; then
-            {
-              echo '### Upstream sync blocked by merge conflicts'
-              echo '```'
-              printf '%s\n' "$conflicts"
-              echo '```'
-              echo 'Merge upstream/main manually. No changes were pushed or deployed.'
-            } >> "$GITHUB_STEP_SUMMARY"
-            git merge --abort
-            echo "conflict=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # A non-conflict Git failure must not be mistaken for success.
-          if ! git rev-parse --verify MERGE_HEAD >/dev/null; then
-            echo "Merge failed with status $merge_status without a merge to commit." >&2
-            exit 1
-          fi
-          git commit --no-edit
-          git diff --exit-code origin/main HEAD -- .github/workflows
+        run: bash .github/scripts/sync-upstream.sh
 
       - name: Push to fork main
         id: push
@@ -77,9 +44,6 @@ jobs:
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           if [ "$(git rev-parse origin/main)" != "$(git rev-parse HEAD)" ]; then
             git push origin HEAD:main
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Report merge conflicts
@@ -88,26 +52,11 @@ jobs:
         with:
           script: |
             core.setFailed('Upstream merge conflicted. See the run summary; nothing was pushed or deployed.');
-            const { data: repo } = await github.rest.repos.get(context.repo);
-            if (!repo.has_issues) {
-              core.warning('Repository Issues are disabled. Conflict details are in the run summary.');
-              return;
-            }
-            const title = 'Upstream sync conflict';
-            const { data: issues } = await github.rest.issues.listForRepo({
-              ...context.repo, state: 'open', creator: 'github-actions[bot]'
-            });
-            if (!issues.some(issue => issue.title === title)) {
-              await github.rest.issues.create({
-                ...context.repo,
-                title,
-                body: `The upstream/main merge conflicted. No changes were pushed or deployed.\n\nSee the [run summary](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for conflicting paths.`
-              });
-            }
 
   deploy:
     needs: sync
-    if: needs.sync.outputs.changed == 'true'
+    # Retry deployment even when the preceding run already pushed the merge.
+    if: needs.sync.result == 'success'
     permissions:
       contents: read
       packages: write
@@ -115,3 +64,26 @@ jobs:
     with:
       ref: ${{ needs.sync.outputs.sha }}
     secrets: inherit
+
+  report-failure:
+    needs: [sync, deploy]
+    if: always() && (needs.sync.result == 'failure' || needs.deploy.result == 'failure')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open one actionable failure issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'Glance upstream sync or deployment failed';
+            const { data: issues } = await github.rest.issues.listForRepo({
+              ...context.repo, state: 'open', creator: 'github-actions[bot]'
+            });
+            if (!issues.some(issue => issue.title === title)) {
+              await github.rest.issues.create({
+                ...context.repo,
+                title,
+                body: `Automatic upstream sync or deployment failed. Review the [failed run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}).\n\nScheduled runs retry deployment even when the fork is already current. Code conflicts require a manual merge; fork customizations are never discarded automatically.`
+              });
+            }
